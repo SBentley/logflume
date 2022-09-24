@@ -1,5 +1,7 @@
-use willow::Logger;
+use log::{info, LevelFilter};
 
 fn main() {
-    let logger = willow::Logger{cpu_id: 1};
+    let logger = willow::Logger::new().level(LevelFilter::Debug).init();
+    info!("test");
+
 }
