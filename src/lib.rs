@@ -1,3 +1,5 @@
+use std::fs::File;
+use std::io::Write;
 use std::sync::{mpsc, Mutex};
 use std::sync::mpsc::{Sender};
 use std::thread;
@@ -7,17 +9,18 @@ use log::{LevelFilter, Log, Record, SetLoggerError};
 
 pub struct Logger {
     cpu: usize,
-    file: String,
+    file_path: Option<String>,
+    file: Option<File>,
     filter_level: LevelFilter,
     sender: Option<Mutex<Sender<String>>>,
 }
 
 impl Logger {
     pub fn new() -> Logger {
-
         Logger {
             cpu: 1,
-            file: "".to_string(),
+            file_path: None,
+            file: None,
             filter_level: LevelFilter::Off,
             sender: None,
         }
@@ -37,23 +40,33 @@ impl Logger {
         self
     }
 
+    pub fn file(mut self, file: &str) -> Logger {
+        self.file_path = Some(file.to_string());
+        self
+    }
+
     pub fn init(mut self) -> Result<(), SetLoggerError> {
         let (tx, rx) = mpsc::channel();
         self.sender = Some(Mutex::new(tx));
         let core = self.cpu.clone();
-        // receiver: Mutex::new(rx)
-
-        log::set_max_level(self.filter_level);
-        log::set_boxed_logger(Box::new(self))?;
+        let file_path = self.file_path.take();
+        let mut file = match file_path {
+            Some(f) => Some(File::create(f).unwrap()),
+            None => None,
+        };
 
         thread::spawn(move || {
             core_affinity::set_for_current(CoreId {id: core});
             loop {
                 let msg = rx.recv().unwrap();
                 println!("{}",msg);
+                if let Some(ref mut f) = file {
+                    f.write(msg.as_bytes()).unwrap();
+                }
             }
         });
-
+        log::set_max_level(self.filter_level);
+        log::set_boxed_logger(Box::new(self))?;
         Ok(())
     }
 }

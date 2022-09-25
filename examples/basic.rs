@@ -6,6 +6,7 @@ fn main() {
     willow::Logger::new()
         .level(LevelFilter::Debug)
         .cpu(7)
+        .file("test.log")
         .init().expect("Unable to construct logger");
     let core_ids = core_affinity::get_core_ids().unwrap();
     println!("{:?}", core_ids);
