@@ -1,3 +1,5 @@
+extern crate core;
+
 use std::fs::File;
 use std::io::Write;
 use std::sync::{mpsc, Mutex};
@@ -6,13 +8,14 @@ use std::thread;
 use chrono::Utc;
 use core_affinity::CoreId;
 use log::{LevelFilter, Log, Record, SetLoggerError};
+use crossbeam_channel::unbounded;
 
 pub struct Logger {
     cpu: usize,
     file_path: Option<String>,
     file: Option<File>,
     filter_level: LevelFilter,
-    sender: Option<Mutex<Sender<String>>>,
+    sender: Option<crossbeam_channel::Sender<String>>
 }
 
 impl Logger {
@@ -46,8 +49,9 @@ impl Logger {
     }
 
     pub fn init(mut self) -> Result<(), SetLoggerError> {
-        let (tx, rx) = mpsc::channel();
-        self.sender = Some(Mutex::new(tx));
+        let (tx, rx) = unbounded();
+
+        self.sender = Some(tx);
         let core = self.cpu.clone();
         let file_path = self.file_path.take();
         let mut file = match file_path {
@@ -58,11 +62,14 @@ impl Logger {
         thread::spawn(move || {
             core_affinity::set_for_current(CoreId {id: core});
             loop {
-                let msg = rx.recv().unwrap();
-                println!("{}",msg);
-                if let Some(ref mut f) = file {
-                    f.write(msg.as_bytes()).unwrap();
+                // let msg = rx.recv().unwrap();
+                if let Ok(msg) = rx.recv() {
+                    println!("{}",msg);
+                    if let Some(ref mut f) = file {
+                        f.write(msg.as_bytes()).unwrap();
+                    }
                 }
+
             }
         });
         log::set_max_level(self.filter_level);
@@ -81,7 +88,7 @@ impl Log for Logger {
             let msg = format!("Willow: {} [{}] {}", Utc::now(), record.level() ,record.args());
             match &self.sender {
                 Some(tx) => {
-                    tx.lock().unwrap().send(msg).unwrap();
+                    tx.send(msg).unwrap();
                 }
                 None => ()
             }

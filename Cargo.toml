@@ -9,7 +9,7 @@ edition = "2021"
 chrono = "0.4.22"
 core_affinity = "0.5.10"
 log = {version = "0.4.17", features = ["std"]}
-
+crossbeam-channel = "0.5"
 
 [[example]]
 name = "basic"
