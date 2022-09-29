@@ -11,8 +11,6 @@ fn main() {
     let core_ids = core_affinity::get_core_ids().unwrap();
     println!("{:?}", core_ids);
     info!("test");
-
-    sleep(Duration::from_secs(5));
-    println!("shutting down");
+    log::logger().flush();
 
 }
