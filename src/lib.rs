@@ -1,21 +1,24 @@
 extern crate core;
 
-use std::fs::File;
-use std::io::Write;
-use std::sync::{mpsc, Mutex};
-use std::sync::mpsc::{Sender};
-use std::thread;
 use chrono::Utc;
 use core_affinity::CoreId;
+use crossbeam_channel;
+use crossbeam_channel::internal::SelectHandle;
 use log::{LevelFilter, Log, Record, SetLoggerError};
-use crossbeam_channel::unbounded;
+use std::fs::File;
+use std::io::Write;
+use std::thread;
 
 pub struct Logger {
     cpu: usize,
     file_path: Option<String>,
-    file: Option<File>,
     filter_level: LevelFilter,
-    sender: Option<crossbeam_channel::Sender<String>>
+    sender: Option<crossbeam_channel::Sender<LogCommand>>,
+}
+
+pub enum LogCommand {
+    Msg(String),
+    Flush(crossbeam_channel::Sender<()>),
 }
 
 impl Logger {
@@ -23,7 +26,6 @@ impl Logger {
         Logger {
             cpu: 1,
             file_path: None,
-            file: None,
             filter_level: LevelFilter::Off,
             sender: None,
         }
@@ -49,7 +51,7 @@ impl Logger {
     }
 
     pub fn init(mut self) -> Result<(), SetLoggerError> {
-        let (tx, rx) = unbounded();
+        let (tx, rx) = crossbeam_channel::unbounded();
 
         self.sender = Some(tx);
         let core = self.cpu.clone();
@@ -59,17 +61,41 @@ impl Logger {
             None => None,
         };
 
-        thread::spawn(move || {
-            core_affinity::set_for_current(CoreId {id: core});
+        let _a = thread::spawn(move || {
+            core_affinity::set_for_current(CoreId { id: core });
             loop {
-                // let msg = rx.recv().unwrap();
-                if let Ok(msg) = rx.recv() {
-                    println!("{}",msg);
-                    if let Some(ref mut f) = file {
-                        f.write(msg.as_bytes()).unwrap();
+                let mut last_msg = String::new();
+                match rx.try_recv() {
+                    Ok(cmd) => {
+                        if let Some(ref mut f) = file {
+                            match cmd {
+                                LogCommand::Msg(msg) => {
+                                    last_msg = msg.clone();
+                                    f.write(msg.as_bytes()).unwrap();
+                                }
+                                LogCommand::Flush(tx) => {
+                                    println!("last_msg: {}", last_msg);
+                                    f.flush().unwrap();
+                                    tx.send(());
+                                }
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        match e {
+                            crossbeam_channel::TryRecvError::Empty => {
+                                if let Some(ref mut f) = file {
+                                    f.flush().unwrap();
+                                }
+                            },
+                            crossbeam_channel::TryRecvError::Disconnected => todo!(),
+                        }
+                        println!("recv err");
+                        if let Some(ref mut f) = file {
+                            f.write("recv err".as_bytes()).unwrap();
+                        }
                     }
                 }
-
             }
         });
         log::set_max_level(self.filter_level);
@@ -79,36 +105,43 @@ impl Logger {
 }
 
 impl Log for Logger {
-    fn enabled(&self, metadata: &log::Metadata) -> bool {
-        return self.filter_level != LevelFilter::Off
+    fn enabled(&self, _: &log::Metadata) -> bool {
+        return self.filter_level != LevelFilter::Off;
     }
 
     fn log(&self, record: &Record) {
         if self.enabled(record.metadata()) {
-            let msg = format!("Willow: {} [{}] {}", Utc::now(), record.level() ,record.args());
+            let msg = format!(
+                "Willow: {} [{}] {}\n",
+                Utc::now(),
+                record.level(),
+                record.args()
+            );
             match &self.sender {
                 Some(tx) => {
-                    tx.send(msg).unwrap();
+                    tx.send(LogCommand::Msg(msg)).unwrap();
                 }
-                None => ()
+                None => (),
             }
         }
     }
 
     fn flush(&self) {
-        println!("Flushing")
+        println!("Flushing");
+        if let Some(tx) = &self.sender { 
+            tx.send(LogCommand::Flush(crossbeam_channel::bounded(1))).unwrap();
+        }
     }
 }
 
 impl Drop for Logger {
     fn drop(&mut self) {
-        todo!()
+        self.flush();
+        println!("drop")
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
-
+    // use super::*;
 }

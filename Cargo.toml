@@ -10,6 +10,7 @@ chrono = "0.4.22"
 core_affinity = "0.5.10"
 log = {version = "0.4.17", features = ["std"]}
 crossbeam-channel = "0.5"
+log4rs = "1.1.1"
 
 [[example]]
 name = "basic"

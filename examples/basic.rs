@@ -1,18 +1,24 @@
-use std::thread::{sleep, Thread};
-use std::time::Duration;
+use chrono::{Utc};
 use log::{info, LevelFilter};
+use std::fs;
+use std::path::Path;
 
 fn main() {
+    if Path::new("test.log").exists() {
+        fs::remove_file("test.log").expect("Cannot delete test log file.");
+    }
     willow::Logger::new()
         .level(LevelFilter::Debug)
         .cpu(7)
-        .file("target/test.log")
-        .init().expect("Unable to construct logger");
-    let core_ids = core_affinity::get_core_ids().unwrap();
-    println!("{:?}", core_ids);
-    info!("test");
+        .file("test.log")
+        .init()
+        .expect("Unable to construct logger");
 
-    sleep(Duration::from_secs(5));
-    println!("shutting down");
+    info!("{}", Utc::now());    
+    for i in 1..1_000_000 {
+        info!("test {}", i, );
+    }
+    log::logger().flush();
+
 
 }
