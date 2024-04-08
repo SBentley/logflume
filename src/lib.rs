@@ -1,38 +1,90 @@
 extern crate core;
 
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use core_affinity::CoreId;
-use crossbeam_channel;
-use crossbeam_channel::internal::SelectHandle;
-use log::{LevelFilter, Log, Record, SetLoggerError};
+use log::LevelFilter;
+use std::fmt;
 use std::fs::File;
-use std::io::Write;
+use std::io::{BufWriter, Write};
 use std::thread;
+
+pub mod __private_api;
+pub mod macros;
+pub use log::Level;
+
+static mut LOGGER: Option<&Logger> = None;
+
+struct LogMetaData {
+    level: Level,
+    time: DateTime<Utc>,
+    func: LoggingFunc,
+}
+
+#[derive(Debug)]
+pub enum LoggerError {
+    /// Generic error for failure to initialise the logger. Used instead of private setLoggerError
+    /// in log crate. Can be returned when log file not available or logger is unable to be set
+    /// internally.
+    InitialisationError,
+}
+
+impl std::error::Error for LoggerError {}
+
+impl fmt::Display for LoggerError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            LoggerError::InitialisationError => write!(f, "Error initialising algo logger"),
+        }
+    }
+}
+
+enum LogCommand {
+    Msg(LogMetaData),
+    Flush(crossbeam_channel::Sender<()>),
+}
+
+pub struct LoggingFunc {
+    data: Box<dyn Fn() -> String + Send + 'static>,
+}
+
+impl LoggingFunc {
+    #[allow(dead_code)]
+    pub fn new<T>(data: T) -> LoggingFunc
+    where
+        T: Fn() -> String + Send + 'static,
+    {
+        return LoggingFunc {
+            data: Box::new(data),
+        };
+    }
+    fn invoke(self) -> String {
+        (self.data)()
+    }
+}
+
+impl fmt::Debug for LoggingFunc {
+    fn fmt(&self, _f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        Ok(())
+    }
+}
 
 pub struct Logger {
     cpu: usize,
+    buffer_size: usize,
     file_path: Option<String>,
     filter_level: LevelFilter,
     sender: Option<crossbeam_channel::Sender<LogCommand>>,
-}
-
-pub enum LogCommand {
-    Msg(String),
-    Flush(crossbeam_channel::Sender<()>),
 }
 
 impl Logger {
     pub fn new() -> Logger {
         Logger {
             cpu: 1,
+            buffer_size: 0,
             file_path: None,
             filter_level: LevelFilter::Off,
             sender: None,
         }
-    }
-
-    pub fn plog(self) {
-        self.flush();
     }
 
     pub fn level(mut self, filter: LevelFilter) -> Logger {
@@ -45,91 +97,90 @@ impl Logger {
         self
     }
 
+    pub fn buffer_size(mut self, buf_size: usize) -> Logger {
+        self.buffer_size = buf_size;
+        self
+    }
+
     pub fn file(mut self, file: &str) -> Logger {
         self.file_path = Some(file.to_string());
         self
     }
 
-    pub fn init(mut self) -> Result<(), SetLoggerError> {
-        let (tx, rx) = crossbeam_channel::unbounded();
+    pub fn init(mut self) -> Result<(), LoggerError> {
+        let (tx, rx) = match self.buffer_size {
+            0 => crossbeam_channel::unbounded(),
+            _ => crossbeam_channel::bounded(self.buffer_size),
+        };
 
         self.sender = Some(tx);
-        let core = self.cpu.clone();
-        let file_path = self.file_path.take();
-        let mut file = match file_path {
-            Some(f) => Some(File::create(f).unwrap()),
-            None => None,
-        };
+        let file_path = self.file_path.clone();
+        let file =
+            File::create(file_path.unwrap()).map_err(|_| LoggerError::InitialisationError)?;
+        let mut buffered_writer = BufWriter::new(file);
+        let core = self.cpu;
 
         let _a = thread::spawn(move || {
             core_affinity::set_for_current(CoreId { id: core });
             loop {
-                let mut last_msg = String::new();
                 match rx.try_recv() {
                     Ok(cmd) => {
-                        if let Some(ref mut f) = file {
-                            match cmd {
-                                LogCommand::Msg(msg) => {
-                                    last_msg = msg.clone();
-                                    f.write(msg.as_bytes()).unwrap();
-                                }
-                                LogCommand::Flush(tx) => {
-                                    println!("last_msg: {}", last_msg);
-                                    f.flush().unwrap();
-                                    tx.send(());
-                                }
-                            }
-                        }
+                        Self::process_log_command(&mut buffered_writer, cmd);
                     }
-                    Err(e) => {
-                        match e {
-                            crossbeam_channel::TryRecvError::Empty => {
-                                if let Some(ref mut f) = file {
-                                    f.flush().unwrap();
-                                }
-                            },
-                            crossbeam_channel::TryRecvError::Disconnected => todo!(),
+                    Err(e) => match e {
+                        crossbeam_channel::TryRecvError::Empty => {
+                            let _ = buffered_writer.flush();
                         }
-                        println!("recv err");
-                        if let Some(ref mut f) = file {
-                            f.write("recv err".as_bytes()).unwrap();
+                        crossbeam_channel::TryRecvError::Disconnected => {
+                            let _ = buffered_writer
+                                .write_all("Logging channel disconnected".as_bytes());
                         }
-                    }
+                    },
                 }
             }
         });
+
         log::set_max_level(self.filter_level);
-        log::set_boxed_logger(Box::new(self))?;
+        unsafe {
+            let boxed_logger = Box::new(self);
+            LOGGER = Some(Box::leak(boxed_logger));
+        }
         Ok(())
     }
-}
 
-impl Log for Logger {
-    fn enabled(&self, _: &log::Metadata) -> bool {
-        return self.filter_level != LevelFilter::Off;
-    }
-
-    fn log(&self, record: &Record) {
-        if self.enabled(record.metadata()) {
-            let msg = format!(
-                "Willow: {} [{}] {}\n",
-                Utc::now(),
-                record.level(),
-                record.args()
-            );
-            match &self.sender {
-                Some(tx) => {
-                    tx.send(LogCommand::Msg(msg)).unwrap();
-                }
-                None => (),
+    fn process_log_command(buffered_file_writer: &mut BufWriter<File>, cmd: LogCommand) {
+        match cmd {
+            LogCommand::Msg(msg) => {
+                let log_msg = format!("{} [{}] {}\n", msg.time, msg.level, msg.func.invoke());
+                let _ = buffered_file_writer.write_all(log_msg.as_bytes());
+            }
+            LogCommand::Flush(tx) => {
+                let _ = buffered_file_writer.flush();
+                let _ = tx.send(());
             }
         }
     }
 
-    fn flush(&self) {
-        println!("Flushing");
-        if let Some(tx) = &self.sender { 
-            tx.send(LogCommand::Flush(crossbeam_channel::bounded(1))).unwrap();
+    pub fn log(&self, level: Level, func: LoggingFunc) {
+        match &self.sender {
+            Some(tx) => {
+                tx.send(LogCommand::Msg(LogMetaData {
+                    level,
+                    time: Utc::now(),
+                    func,
+                }))
+                .unwrap();
+            }
+            None => (),
+        }
+    }
+
+    /// Blocking
+    pub fn flush(&self) {
+        if let Some(tx) = &self.sender {
+            let (flush_tx, flush_rx) = crossbeam_channel::bounded(1);
+            tx.send(LogCommand::Flush(flush_tx)).ok();
+            let _ = flush_rx.recv();
         }
     }
 }
@@ -137,11 +188,24 @@ impl Log for Logger {
 impl Drop for Logger {
     fn drop(&mut self) {
         self.flush();
-        println!("drop")
     }
+}
+
+pub fn logger() -> &'static Logger {
+    unsafe { LOGGER.unwrap() }
 }
 
 #[cfg(test)]
 mod tests {
-    // use super::*;
+    use crate::Logger;
+    use crate::{debug, error, info, warn};
+
+    #[test]
+    pub fn test_log() {
+        Logger::new().file("test.log").init().unwrap();
+        info!("hello {} {}", "world", 123);
+        warn!("hello world");
+        debug!("debug log");
+        error!("Something went wrong!");
+    }
 }

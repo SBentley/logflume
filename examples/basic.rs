@@ -1,7 +1,7 @@
-use chrono::{Utc};
-use log::{info, LevelFilter};
+use log::LevelFilter;
 use std::fs;
 use std::path::Path;
+use willow::info;
 
 fn main() {
     if Path::new("test.log").exists() {
@@ -9,16 +9,13 @@ fn main() {
     }
     willow::Logger::new()
         .level(LevelFilter::Debug)
-        .cpu(7)
+        .cpu(2)
         .file("test.log")
         .init()
         .expect("Unable to construct logger");
 
-    info!("{}", Utc::now());    
-    for i in 1..1_000_000 {
-        info!("test {}", i, );
+    for i in 1..1_000_001 {
+        info!("test {}", i);
     }
-    log::logger().flush();
-
-
+    willow::logger().flush();
 }

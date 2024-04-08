@@ -1,15 +1,16 @@
 [package]
 name = "willow"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 chrono = "0.4.22"
 core_affinity = "0.5.10"
-log = {version = "0.4.17", features = ["std"]}
+log = { version = "0.4.17", features = ["std"] }
 crossbeam-channel = "0.5"
+lockfree = "0.5.1"
+
+[dev-dependencies]
 log4rs = "1.1.1"
 
 [[example]]
