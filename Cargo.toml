@@ -2,6 +2,8 @@
 name = "logflume"
 version = "0.0.1"
 edition = "2021"
+desctiption = "A low latency logging library 🪵."
+license = "MIT"
 
 [dependencies]
 chrono = "0.4.22"
