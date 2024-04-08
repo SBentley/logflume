@@ -1,15 +1,18 @@
 [package]
-name = "willow"
-version = "0.1.0"
+name = "logflume"
+version = "0.0.2"
 edition = "2021"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+description = "A low latency logging library 🪵."
+license = "MIT"
 
 [dependencies]
 chrono = "0.4.22"
 core_affinity = "0.5.10"
-log = {version = "0.4.17", features = ["std"]}
+log = { version = "0.4.17", features = ["std"] }
 crossbeam-channel = "0.5"
+lockfree = "0.5.1"
+
+[dev-dependencies]
 log4rs = "1.1.1"
 
 [[example]]
