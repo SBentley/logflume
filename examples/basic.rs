@@ -1,13 +1,13 @@
+use larch::info;
 use log::LevelFilter;
 use std::fs;
 use std::path::Path;
-use willow::info;
 
 fn main() {
     if Path::new("test.log").exists() {
         fs::remove_file("test.log").expect("Cannot delete test log file.");
     }
-    willow::Logger::new()
+    larch::Logger::new()
         .level(LevelFilter::Debug)
         .cpu(2)
         .file("test.log")
@@ -17,5 +17,5 @@ fn main() {
     for i in 1..1_000_001 {
         info!("test {}", i);
     }
-    willow::logger().flush();
+    larch::logger().flush();
 }
