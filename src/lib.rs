@@ -22,9 +22,6 @@ struct LogMetaData {
 
 #[derive(Debug)]
 pub enum LoggerError {
-    /// Generic error for failure to initialise the logger. Used instead of private setLoggerError
-    /// in log crate. Can be returned when log file not available or logger is unable to be set
-    /// internally.
     InitialisationError,
 }
 
