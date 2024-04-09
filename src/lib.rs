@@ -75,8 +75,13 @@ pub struct Logger {
 
 impl Logger {
     pub fn new() -> Logger {
+        let cpus = core_affinity::get_core_ids();
+        let core = match cpus {
+            Some(c) => c.last().unwrap().id,
+            None => 0,
+        };
         Logger {
-            cpu: 1,
+            cpu: core,
             buffer_size: 0,
             file_path: None,
             filter_level: LevelFilter::Off,
