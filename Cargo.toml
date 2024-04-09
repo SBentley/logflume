@@ -1,6 +1,6 @@
 [package]
 name = "logflume"
-version = "0.0.2"
+version = "0.0.3"
 edition = "2021"
 description = "A low latency logging library 🪵."
 license = "MIT"
