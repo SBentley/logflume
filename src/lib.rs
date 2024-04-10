@@ -2,7 +2,6 @@ extern crate core;
 
 use chrono::{DateTime, Utc};
 use core_affinity::CoreId;
-use log::LevelFilter;
 use std::fmt;
 use std::fs::File;
 use std::io::{BufWriter, Write};
@@ -10,9 +9,26 @@ use std::thread;
 
 pub mod __private_api;
 pub mod macros;
-pub use log::Level;
 
 static mut LOGGER: Option<&Logger> = None;
+
+pub enum Level {
+    Debug,
+    Info,
+    Warn,
+    Error,
+}
+
+impl fmt::Display for Level {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            Level::Debug => write!(f, "DEBUG"),
+            Level::Info => write!(f, "INFO"),
+            Level::Warn => write!(f, "WARN"),
+            Level::Error => write!(f, "ERROR"),
+        }
+    }
+}
 
 struct LogMetaData {
     level: Level,
@@ -30,7 +46,7 @@ impl std::error::Error for LoggerError {}
 impl fmt::Display for LoggerError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            LoggerError::InitialisationError => write!(f, "Error initialising algo logger"),
+            LoggerError::InitialisationError => write!(f, "Error during initialisation"),
         }
     }
 }
@@ -69,7 +85,7 @@ pub struct Logger {
     cpu: usize,
     buffer_size: usize,
     file_path: Option<String>,
-    filter_level: LevelFilter,
+    filter_level: Level,
     sender: Option<crossbeam_channel::Sender<LogCommand>>,
 }
 
@@ -84,12 +100,12 @@ impl Logger {
             cpu,
             buffer_size: 0,
             file_path: None,
-            filter_level: LevelFilter::Off,
+            filter_level: Level::Info,
             sender: None,
         }
     }
 
-    pub fn level(mut self, filter: LevelFilter) -> Logger {
+    pub fn level(mut self, filter: Level) -> Logger {
         self.filter_level = filter;
         self
     }
@@ -142,7 +158,6 @@ impl Logger {
             }
         });
 
-        log::set_max_level(self.filter_level);
         unsafe {
             let boxed_logger = Box::new(self);
             LOGGER = Some(Box::leak(boxed_logger));

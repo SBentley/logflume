@@ -1,5 +1,4 @@
-use log::LevelFilter;
-use logflume::info;
+use logflume::{info, Level};
 use std::fs;
 use std::path::Path;
 
@@ -8,7 +7,7 @@ fn main() {
         fs::remove_file("test.log").expect("Cannot delete test log file.");
     }
     logflume::Logger::new()
-        .level(LevelFilter::Debug)
+        .level(Level::Debug)
         .cpu(2)
         .file("test.log")
         .init()
