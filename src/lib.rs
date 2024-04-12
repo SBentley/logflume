@@ -35,6 +35,7 @@ struct LogMetaData {
     time: DateTime<Utc>,
     func: LoggingFunc,
     file: &'static str,
+    line: u32,
 }
 
 #[derive(Debug)]
@@ -170,10 +171,11 @@ impl Logger {
         match cmd {
             LogCommand::Msg(msg) => {
                 let log_msg = format!(
-                    "{} [{}] {} {}\n",
+                    "{} {} [{}->{}] {}\n",
                     msg.time,
                     msg.level,
                     msg.file,
+                    msg.line,
                     msg.func.invoke()
                 );
                 let _ = buffered_file_writer.write_all(log_msg.as_bytes());
@@ -185,13 +187,14 @@ impl Logger {
         }
     }
 
-    pub fn log(&self, level: Level, func: LoggingFunc, file: &'static str) {
+    pub fn log(&self, level: Level, func: LoggingFunc, file: &'static str, line: u32) {
         match &self.sender {
             Some(tx) => {
                 tx.send(LogCommand::Msg(LogMetaData {
                     level,
                     time: Utc::now(),
                     file,
+                    line,
                     func,
                 }))
                 .unwrap();
