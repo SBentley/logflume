@@ -2,6 +2,7 @@ extern crate core;
 
 use chrono::{DateTime, Utc};
 use core_affinity::CoreId;
+use lockfree::channel::spsc;
 use std::fmt;
 use std::fs::File;
 use std::io::{BufWriter, Write};
@@ -10,8 +11,9 @@ use std::thread;
 pub mod __private_api;
 pub mod macros;
 
-static mut LOGGER: Option<&Logger> = None;
+static mut LOGGER: Option<&mut Logger> = None;
 
+#[derive(Debug)]
 pub enum Level {
     Debug,
     Info,
@@ -30,6 +32,7 @@ impl fmt::Display for Level {
     }
 }
 
+#[derive(Debug)]
 struct LogMetaData {
     level: Level,
     time: DateTime<Utc>,
@@ -51,6 +54,7 @@ impl fmt::Display for LoggerError {
     }
 }
 
+#[derive(Debug)]
 enum LogCommand {
     Msg(LogMetaData),
     Flush(crossbeam_channel::Sender<()>),
@@ -86,7 +90,7 @@ pub struct Logger {
     buffer_size: usize,
     file_path: Option<String>,
     filter_level: Level,
-    sender: Option<crossbeam_channel::Sender<LogCommand>>,
+    sender: spsc::Sender<LogCommand>,
 }
 
 impl Logger {
@@ -96,12 +100,13 @@ impl Logger {
             Some(c) => c.last().unwrap().id,
             None => 0,
         };
+        let tx = spsc::create::<LogCommand>().0;
         Logger {
             cpu,
             buffer_size: 0,
             file_path: None,
             filter_level: Level::Info,
-            sender: None,
+            sender: tx,
         }
     }
 
@@ -126,12 +131,9 @@ impl Logger {
     }
 
     pub fn init(mut self) -> Result<(), LoggerError> {
-        let (tx, rx) = match self.buffer_size {
-            0 => crossbeam_channel::unbounded(),
-            _ => crossbeam_channel::bounded(self.buffer_size),
-        };
+        let (tx, mut rx) = spsc::create::<LogCommand>();
 
-        self.sender = Some(tx);
+        self.sender = tx;
         let file_path = self.file_path.clone();
         let file =
             File::create(file_path.unwrap()).map_err(|_| LoggerError::InitialisationError)?;
@@ -141,15 +143,13 @@ impl Logger {
         let _a = thread::spawn(move || {
             core_affinity::set_for_current(CoreId { id: core });
             loop {
-                match rx.try_recv() {
+                match rx.recv() {
                     Ok(cmd) => {
                         Self::process_log_command(&mut buffered_writer, cmd);
                     }
                     Err(e) => match e {
-                        crossbeam_channel::TryRecvError::Empty => {
-                            let _ = buffered_writer.flush();
-                        }
-                        crossbeam_channel::TryRecvError::Disconnected => {
+                        spsc::RecvErr::NoMessage => {}
+                        spsc::RecvErr::NoSender => {
                             let _ = buffered_writer
                                 .write_all("Logging channel disconnected".as_bytes());
                         }
@@ -178,27 +178,21 @@ impl Logger {
         }
     }
 
-    pub fn log(&self, level: Level, func: LoggingFunc) {
-        match &self.sender {
-            Some(tx) => {
-                tx.send(LogCommand::Msg(LogMetaData {
-                    level,
-                    time: Utc::now(),
-                    func,
-                }))
-                .unwrap();
-            }
-            None => (),
-        }
+    pub fn log(&mut self, level: Level, func: LoggingFunc) {
+        self.sender
+            .send(LogCommand::Msg(LogMetaData {
+                level,
+                time: Utc::now(),
+                func,
+            }))
+            .unwrap();
     }
 
     /// Blocking
-    pub fn flush(&self) {
-        if let Some(tx) = &self.sender {
-            let (flush_tx, flush_rx) = crossbeam_channel::bounded(1);
-            tx.send(LogCommand::Flush(flush_tx)).ok();
-            let _ = flush_rx.recv();
-        }
+    pub fn flush(&mut self) {
+        let (flush_tx, flush_rx) = crossbeam_channel::bounded(1);
+        self.sender.send(LogCommand::Flush(flush_tx)).ok();
+        let _ = flush_rx.recv();
     }
 }
 
@@ -208,8 +202,8 @@ impl Drop for Logger {
     }
 }
 
-pub fn logger() -> &'static Logger {
-    unsafe { LOGGER.unwrap() }
+pub fn logger() -> &'static mut Logger {
+    unsafe { LOGGER.as_mut().unwrap() }
 }
 
 #[cfg(test)]
