@@ -34,6 +34,7 @@ struct LogMetaData {
     level: Level,
     time: DateTime<Utc>,
     func: LoggingFunc,
+    file: &'static str,
 }
 
 #[derive(Debug)]
@@ -168,7 +169,13 @@ impl Logger {
     fn process_log_command(buffered_file_writer: &mut BufWriter<File>, cmd: LogCommand) {
         match cmd {
             LogCommand::Msg(msg) => {
-                let log_msg = format!("{} [{}] {}\n", msg.time, msg.level, msg.func.invoke());
+                let log_msg = format!(
+                    "{} [{}] {} {}\n",
+                    msg.time,
+                    msg.level,
+                    msg.file,
+                    msg.func.invoke()
+                );
                 let _ = buffered_file_writer.write_all(log_msg.as_bytes());
             }
             LogCommand::Flush(tx) => {
@@ -178,12 +185,13 @@ impl Logger {
         }
     }
 
-    pub fn log(&self, level: Level, func: LoggingFunc) {
+    pub fn log(&self, level: Level, func: LoggingFunc, file: &'static str) {
         match &self.sender {
             Some(tx) => {
                 tx.send(LogCommand::Msg(LogMetaData {
                     level,
                     time: Utc::now(),
+                    file,
                     func,
                 }))
                 .unwrap();

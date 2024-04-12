@@ -4,14 +4,14 @@ macro_rules! log {
         let func = $crate::__private_api::LoggingFunc::new(move || {
             format!($fmt, $($arg)*)
         });
-        $crate::__private_api::log($lvl, func);
+        $crate::__private_api::log($lvl, func, file!());
     };
 
     ($lvl:expr, $fmt:expr) => {
         let func = $crate::__private_api::LoggingFunc::new(move || {
             format!($fmt)
         });
-        $crate::__private_api::log($lvl, func);
+        $crate::__private_api::log($lvl, func, file!());
     }
 }
 
