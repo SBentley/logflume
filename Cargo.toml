@@ -4,6 +4,7 @@ version = "0.0.4"
 edition = "2021"
 description = "A low latency logging library 🪵."
 license = "MIT"
+repository = "https://github.com/SBentley/logflume"
 
 [dependencies]
 chrono = "0.4.22"
