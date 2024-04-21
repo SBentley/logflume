@@ -11,10 +11,11 @@ fn main() {
         .cpu(2)
         .file("test.log")
         .init()
+        // .buffer_size(2_000_000)
         .expect("Unable to construct logger");
 
     for i in 1..1_000_001 {
         info!("test {}", i);
     }
-    logflume::logger().flush();
+    // logflume::logger().flush();
 }
