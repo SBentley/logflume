@@ -1,8 +1,8 @@
 extern crate core;
 
-use chrono::{DateTime, Utc};
+use chrono::{Local, Utc};
 use core_affinity::CoreId;
-use std::fmt;
+use std::fmt::{self};
 use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::thread;
@@ -32,7 +32,6 @@ impl fmt::Display for Level {
 
 struct LogMetaData {
     level: Level,
-    time: DateTime<Utc>,
     func: LoggingFunc,
     file: &'static str,
     line: u32,
@@ -88,6 +87,7 @@ pub struct Logger {
     buffer_size: usize,
     file_path: Option<String>,
     filter_level: Level,
+    utc_time: bool,
     sender: Option<crossbeam_channel::Sender<LogCommand>>,
 }
 
@@ -103,6 +103,7 @@ impl Logger {
             buffer_size: 0,
             file_path: None,
             filter_level: Level::Info,
+            utc_time: false,
             sender: None,
         }
     }
@@ -127,6 +128,11 @@ impl Logger {
         self
     }
 
+    pub fn utc_time(mut self, b: bool) -> Logger {
+        self.utc_time = b;
+        self
+    }
+
     pub fn init(mut self) -> Result<(), LoggerError> {
         let (tx, rx) = match self.buffer_size {
             0 => crossbeam_channel::unbounded(),
@@ -139,13 +145,18 @@ impl Logger {
             File::create(file_path.unwrap()).map_err(|_| LoggerError::InitialisationError)?;
         let mut buffered_writer = BufWriter::new(file);
         let core = self.cpu;
+        let time_func = if self.utc_time {
+            get_utc_time
+        } else {
+            get_local_time
+        };
 
         let _a = thread::spawn(move || {
             core_affinity::set_for_current(CoreId { id: core });
             loop {
                 match rx.try_recv() {
                     Ok(cmd) => {
-                        Self::process_log_command(&mut buffered_writer, cmd);
+                        Self::process_log_command(&mut buffered_writer, cmd, time_func);
                     }
                     Err(e) => match e {
                         crossbeam_channel::TryRecvError::Empty => {
@@ -167,12 +178,16 @@ impl Logger {
         Ok(())
     }
 
-    fn process_log_command(buffered_file_writer: &mut BufWriter<File>, cmd: LogCommand) {
+    fn process_log_command(
+        buffered_file_writer: &mut BufWriter<File>,
+        cmd: LogCommand,
+        gettime: fn() -> String,
+    ) {
         match cmd {
             LogCommand::Msg(msg) => {
                 let log_msg = format!(
-                    "{} {} [{}->{}] {}\n",
-                    msg.time,
+                    "{} {} [{}:{}] {}\n",
+                    gettime(),
                     msg.level,
                     msg.file,
                     msg.line,
@@ -192,7 +207,6 @@ impl Logger {
             Some(tx) => {
                 tx.send(LogCommand::Msg(LogMetaData {
                     level,
-                    time: Utc::now(),
                     file,
                     line,
                     func,
@@ -223,10 +237,18 @@ pub fn logger() -> &'static Logger {
     unsafe { LOGGER.unwrap() }
 }
 
+fn get_utc_time() -> String {
+    format!("{}", Utc::now())
+}
+
+fn get_local_time() -> String {
+    format!("{}", Local::now())
+}
+
 #[cfg(test)]
 mod tests {
-    use crate::Logger;
     use crate::{debug, error, info, warn};
+    use crate::{LogMetaData, Logger};
 
     #[test]
     pub fn test_log() {
@@ -235,5 +257,6 @@ mod tests {
         warn!("hello world");
         debug!("debug log");
         error!("Something went wrong!");
+        assert_eq!(std::mem::size_of::<LogMetaData>(), 64)
     }
 }
