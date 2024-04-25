@@ -243,6 +243,6 @@ mod tests {
         warn!("hello world");
         debug!("debug log");
         error!("Something went wrong!");
-        assert_eq!(std::mem::size_of::<LogMetaData>(), 64)
+        assert_eq!(std::mem::size_of::<LogMetaData>(), 24)
     }
 }
