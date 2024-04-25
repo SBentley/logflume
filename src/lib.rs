@@ -33,8 +33,6 @@ impl fmt::Display for Level {
 struct LogMetaData {
     level: Level,
     func: LoggingFunc,
-    file: &'static str,
-    line: u32,
 }
 
 #[derive(Debug)]
@@ -185,14 +183,7 @@ impl Logger {
     ) {
         match cmd {
             LogCommand::Msg(msg) => {
-                let log_msg = format!(
-                    "{} {} [{}:{}] {}\n",
-                    gettime(),
-                    msg.level,
-                    msg.file,
-                    msg.line,
-                    msg.func.invoke()
-                );
+                let log_msg = format!("{} {} {}\n", gettime(), msg.level, msg.func.invoke());
                 let _ = buffered_file_writer.write_all(log_msg.as_bytes());
             }
             LogCommand::Flush(tx) => {
@@ -202,16 +193,11 @@ impl Logger {
         }
     }
 
-    pub fn log(&self, level: Level, func: LoggingFunc, file: &'static str, line: u32) {
+    pub fn log(&self, level: Level, func: LoggingFunc) {
         match &self.sender {
             Some(tx) => {
-                tx.send(LogCommand::Msg(LogMetaData {
-                    level,
-                    file,
-                    line,
-                    func,
-                }))
-                .unwrap();
+                tx.send(LogCommand::Msg(LogMetaData { level, func }))
+                    .unwrap();
             }
             None => (),
         }
