@@ -10,6 +10,8 @@ fn main() {
         .level(Level::Debug)
         .cpu(2)
         .file("test.log")
+        .sleep_duration_millis(100)
+        .thread_name("Example - logging thread")
         .init()
         // .buffer_size(2_000_000)
         .expect("Unable to construct logger");
