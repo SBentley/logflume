@@ -88,6 +88,7 @@ pub struct Logger {
     filter_level: Level,
     utc_time: bool,
     sleep_duration_millis: u64,
+    thread_name: String,
     sender: Option<crossbeam_channel::Sender<LogCommand>>,
 }
 
@@ -100,6 +101,7 @@ impl Logger {
             filter_level: Level::Info,
             utc_time: false,
             sleep_duration_millis: 100,
+            thread_name: String::from("logflume - Rust logging library"),
             sender: None,
         }
     }
@@ -129,8 +131,14 @@ impl Logger {
         self
     }
     
+    /// The logger will sleep if there are no messages to consume from the queue.
     pub fn sleep_duration_millis(mut self, millis: u64) -> Logger {
         self.sleep_duration_millis = millis;
+        self
+    }
+    
+    pub fn thread_name(mut self, name: &str) -> Logger {
+        self.thread_name = name.to_string();
         self
     }
 
@@ -151,7 +159,7 @@ impl Logger {
             get_local_time
         };
 
-        let _a = thread::spawn(move || {
+        let _a = thread::Builder::new().name(self.thread_name.to_string()).spawn(move || {
             if let Some(core) = self.cpu {
                 core_affinity::set_for_current(CoreId { id: core });
             }
