@@ -66,9 +66,9 @@ impl LoggingFunc {
     where
         T: Fn() -> String + Send + 'static,
     {
-        return LoggingFunc {
+        LoggingFunc {
             data: Box::new(data),
-        };
+        }
     }
     fn invoke(self) -> String {
         (self.data)()
@@ -224,6 +224,12 @@ impl Logger {
             let _ = flush_rx.recv();
         }
     }
+}
+
+impl Default for Logger {
+    fn default() -> Self {
+        Self::new()
+    } 
 }
 
 impl Drop for Logger {
