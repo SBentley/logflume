@@ -6,6 +6,7 @@ use std::fmt::{self};
 use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::thread;
+use std::time::Duration;
 
 pub mod __private_api;
 pub mod macros;
@@ -81,27 +82,24 @@ impl fmt::Debug for LoggingFunc {
 }
 
 pub struct Logger {
-    cpu: usize,
+    cpu: Option<usize>,
     buffer_size: usize,
     file_path: Option<String>,
     filter_level: Level,
     utc_time: bool,
+    sleep_duration_millis: u64,
     sender: Option<crossbeam_channel::Sender<LogCommand>>,
 }
 
 impl Logger {
     pub fn new() -> Logger {
-        let cpus = core_affinity::get_core_ids();
-        let cpu = match cpus {
-            Some(c) => c.last().unwrap().id,
-            None => 0,
-        };
         Logger {
-            cpu,
+            cpu: None,
             buffer_size: 0,
             file_path: None,
             filter_level: Level::Info,
             utc_time: false,
+            sleep_duration_millis: 100,
             sender: None,
         }
     }
@@ -112,7 +110,7 @@ impl Logger {
     }
 
     pub fn cpu(mut self, cpu: usize) -> Logger {
-        self.cpu = cpu;
+        self.cpu = Some(cpu);
         self
     }
 
@@ -130,6 +128,11 @@ impl Logger {
         self.utc_time = b;
         self
     }
+    
+    pub fn sleep_duration_millis(mut self, millis: u64) -> Logger {
+        self.sleep_duration_millis = millis;
+        self
+    }
 
     pub fn init(mut self) -> Result<(), LoggerError> {
         let (tx, rx) = match self.buffer_size {
@@ -142,7 +145,6 @@ impl Logger {
         let file =
             File::create(file_path.unwrap()).map_err(|_| LoggerError::InitialisationError)?;
         let mut buffered_writer = BufWriter::new(file);
-        let core = self.cpu;
         let time_func = if self.utc_time {
             get_utc_time
         } else {
@@ -150,7 +152,9 @@ impl Logger {
         };
 
         let _a = thread::spawn(move || {
-            core_affinity::set_for_current(CoreId { id: core });
+            if let Some(core) = self.cpu {
+                core_affinity::set_for_current(CoreId { id: core });
+            }
             loop {
                 match rx.try_recv() {
                     Ok(cmd) => {
@@ -159,6 +163,7 @@ impl Logger {
                     Err(e) => match e {
                         crossbeam_channel::TryRecvError::Empty => {
                             let _ = buffered_writer.flush();
+                            thread::sleep(Duration::from_millis(self.sleep_duration_millis));
                         }
                         crossbeam_channel::TryRecvError::Disconnected => {
                             let _ = buffered_writer
